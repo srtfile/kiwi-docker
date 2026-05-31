@@ -1,0 +1,90 @@
+name: Get Stream URLs
+
+on:
+  workflow_dispatch:
+    inputs:
+      mal_id:
+        description: "MAL ID (e.g. 1535 for Death Note)"
+        required: true
+        default: "1535"
+      episode:
+        description: "Episode number"
+        required: true
+        default: "1"
+      audio:
+        description: "sub or dub (optional)"
+        required: false
+        default: ""
+      quality:
+        description: "360p, 720p, or 1080p (optional)"
+        required: false
+        default: ""
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:latest
+        ports:
+          - 8191:8191
+        options: >-
+          --health-cmd "curl -f http://localhost:8191/ || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install curl-cffi requests
+
+      - name: Wait for FlareSolverr
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8191/ && echo "Ready!" && break
+            echo "Waiting... $i/30"
+            sleep 3
+          done
+
+      - name: Extract stream URLs
+        run: |
+          python - <<'EOF'
+          import sys, json
+          sys.path.insert(0, '.')
+          import extractor
+          extractor.FLARESOLVERR_URL = "http://localhost:8191/v1"
+
+          mal_id  = int("${{ inputs.mal_id }}")
+          episode = int("${{ inputs.episode }}")
+          audio   = "${{ inputs.audio }}" or None
+          quality = "${{ inputs.quality }}" or None
+
+          result = extractor.get_stream_urls(mal_id, episode, verbose=True)
+
+          if audio and audio in result:
+              result = {audio: result[audio]}
+          if quality:
+              result = {a: {quality: qs[quality]} for a, qs in result.items() if quality in qs}
+
+          print("\n" + "="*60)
+          print(json.dumps(result, indent=2))
+
+          with open("streams.json", "w") as f:
+              json.dump({"mal_id": mal_id, "episode": episode, "streams": result}, f, indent=2)
+          EOF
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: streams-mal${{ inputs.mal_id }}-ep${{ inputs.episode }}
+          path: streams.json
+          retention-days: 7
