@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  # FlareSolverr — Cloudflare bypass for kwik.cx/f/ pages
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=UTC
+    ports:
+      - "8191:8191"
+    restart: unless-stopped
+
+  # Kiwi Stream API
+  kiwi-api:
+    build: .
+    container_name: kiwi-api
+    ports:
+      - "8000:8000"
+    environment:
+      - FLARESOLVERR_URL=http://flaresolverr:8191/v1
+    depends_on:
+      - flaresolverr
+    restart: unless-stopped
+
+# Usage:
+#   docker-compose up -d
+#   curl http://localhost:8000/streams/1535/1
+#   curl "http://localhost:8000/streams/1535/1?audio=sub&quality=720p"
